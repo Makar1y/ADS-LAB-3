@@ -6,9 +6,9 @@
 #include "simulation.h"
 
 typedef enum {
-    TASK_IDLE = 0,
-    TASK_ACCEPTANCE = 1,
-    TASK_PROCESSING = 2
+    IDLE = 0,
+    ACCEPTANCE = 1,
+    PROCESSING = 2
 } TaskType;
 
 typedef struct {
@@ -65,12 +65,12 @@ static int assignIdleWorker(
     int takeFromFront,
     int acceptanceTime
 ) {
-    if (!worker || worker->task != TASK_IDLE) {
+    if (!worker || worker->task != IDLE) {
         return 0;
     }
 
     if (*waitingApplicants > 0) {
-        worker->task = TASK_ACCEPTANCE;
+        worker->task = ACCEPTANCE;
         worker->remaining_time = acceptanceTime;
         (*waitingApplicants)--;
         return 1;
@@ -82,7 +82,7 @@ static int assignIdleWorker(
         } else {
             removeBack(shelf);
         }
-        worker->task = TASK_PROCESSING;
+        worker->task = PROCESSING;
         worker->remaining_time = worker->processing_time;
         return 1;
     }
@@ -141,64 +141,70 @@ int runSimulation(const SimulationParams* params, SimulationResult* result) {
         return -1;
     }
 
-    worker1.task = TASK_IDLE;
+    worker1.task = IDLE;
     worker1.remaining_time = 0;
     worker1.processing_time = params->worker1_processing_time;
 
-    worker2.task = TASK_IDLE;
+    worker2.task = IDLE;
     worker2.remaining_time = 0;
     worker2.processing_time = params->worker2_processing_time;
 
     result->last_acceptance_finish_time = params->workday_duration;
 
     while (currentTime < params->workday_duration || waitingApplicants > 0 || !isEmpty(shelf) ||
-           worker1.task != TASK_IDLE || worker2.task != TASK_IDLE) {
+           worker1.task != IDLE || worker2.task != IDLE) {
         int duringDay = currentTime < params->workday_duration;
 
         if (duringDay && (rand() % 100) < params->arrival_probability) {
-            waitingApplicants++;
+            ++waitingApplicants;
             addUnsignedToBigInteger(&result->total_arrivals, 1);
         }
 
         assignIdleWorker(&worker1, &waitingApplicants, shelf, 1, params->acceptance_time);
         assignIdleWorker(&worker2, &waitingApplicants, shelf, 0, params->acceptance_time);
 
-        if (worker1.task == TASK_IDLE && duringDay) {
+        if (worker1.task == IDLE && duringDay) {
             addUnsignedToBigInteger(&result->worker1_idle_during_day, 1);
         }
-        if (worker2.task == TASK_IDLE && duringDay) {
+        if (worker2.task == IDLE && duringDay) {
             addUnsignedToBigInteger(&result->worker2_idle_during_day, 1);
         }
 
-        if (worker1.task != TASK_IDLE) {
-            worker1.remaining_time--;
+        if (worker1.task != IDLE) {
+            --worker1.remaining_time;
             addUnsignedToBigInteger(&result->worker1_busy_time, 1);
         }
-        if (worker2.task != TASK_IDLE) {
-            worker2.remaining_time--;
+        if (worker2.task != IDLE) {
+            --worker2.remaining_time;
             addUnsignedToBigInteger(&result->worker2_busy_time, 1);
         }
 
-        if (worker1.task != TASK_IDLE && worker1.remaining_time == 0) {
-            if (worker1.task == TASK_ACCEPTANCE) {
+        if (worker1.task != IDLE && worker1.remaining_time == 0) {
+            if (worker1.task == ACCEPTANCE) {
                 insertFront(shelf, nextApplicationId++);
                 addUnsignedToBigInteger(&result->total_accepted, 1);
+                if (shelf->size > peakShelfSize) {
+                    peakShelfSize = shelf->size;
+                }
                 result->last_acceptance_finish_time = currentTime + 1;
             } else {
                 addUnsignedToBigInteger(&result->total_processed, 1);
             }
-            worker1.task = TASK_IDLE;
+            worker1.task = IDLE;
         }
 
-        if (worker2.task != TASK_IDLE && worker2.remaining_time == 0) {
-            if (worker2.task == TASK_ACCEPTANCE) {
+        if (worker2.task != IDLE && worker2.remaining_time == 0) {
+            if (worker2.task == ACCEPTANCE) {
                 insertBack(shelf, nextApplicationId++);
                 addUnsignedToBigInteger(&result->total_accepted, 1);
+                if (shelf->size > peakShelfSize) {
+                    peakShelfSize = shelf->size;
+                }
                 result->last_acceptance_finish_time = currentTime + 1;
             } else {
                 addUnsignedToBigInteger(&result->total_processed, 1);
             }
-            worker2.task = TASK_IDLE;
+            worker2.task = IDLE;
         }
 
         if (!queueAtCloseRecorded && currentTime + 1 == params->workday_duration) {
@@ -210,7 +216,7 @@ int runSimulation(const SimulationParams* params, SimulationResult* result) {
             peakShelfSize = getCount(shelf);
         }
 
-        currentTime++;
+        ++currentTime;
     }
 
     addUnsignedToBigInteger(&result->shelf_peak, (unsigned int)peakShelfSize);
@@ -256,25 +262,25 @@ static void printBigIntegerLine(const char* label, const BigInteger* value) {
 void printSimulationResult(const SimulationParams* params, const SimulationResult* result, unsigned int seed) {
     printf("Priemimo komisijos modeliavimas\n");
     printf("-----------------------------------------------\n");
-    printf("Atsitiktiniu skaiciu generatoriaus pradine reiksme: %u\n", seed);
+    printf("Atsitiktiniu skaičių generatoriaus pradine reikšme: %u\n", seed);
     printf("Priemimo darbo dienos trukme:                     %d\n", params->workday_duration);
-    printf("Vieno prasymo priemimo trukme:                    %d\n", params->acceptance_time);
+    printf("Vieno prašymo priemimo trukme:                    %d\n", params->acceptance_time);
     printf("1 darbuotojos tvarkymo trukme:                    %d\n", params->worker1_processing_time);
     printf("2 darbuotojos tvarkymo trukme:                    %d\n", params->worker2_processing_time);
-    printf("Stojanciojo atejimo tikimybe:                     %d%%\n", params->arrival_probability);
+    printf("Stojančiojo atejimo tikimybe:                     %d%%\n", params->arrival_probability);
     printf("\nRezultatai\n");
     printf("-----------------------------------------------\n");
-    printBigIntegerLine("Is viso atejo stojanciuju:", result->total_arrivals);
-    printBigIntegerLine("Is viso priimta prasymu:", result->total_accepted);
-    printBigIntegerLine("Is viso sutvarkyta prasymu:", result->total_processed);
-    printBigIntegerLine("Didziausias prasymu kiekis lentynoje:", result->shelf_peak);
-    printBigIntegerLine("1 darbuotojos uzimtas laikas:", result->worker1_busy_time);
-    printBigIntegerLine("2 darbuotojos uzimtas laikas:", result->worker2_busy_time);
+    printBigIntegerLine("Iš viso atejo stojančiuju:", result->total_arrivals);
+    printBigIntegerLine("Iš viso priimta prašymu:", result->total_accepted);
+    printBigIntegerLine("Iš viso sutvarkyta prašymu:", result->total_processed);
+    printBigIntegerLine("Didžiausias prašymu kiekis lentynoje:", result->shelf_peak);
+    printBigIntegerLine("1 darbuotojos užimtas laikas:", result->worker1_busy_time);
+    printBigIntegerLine("2 darbuotojos užimtas laikas:", result->worker2_busy_time);
     printBigIntegerLine("1 darbuotojos poilsio laikas darbo diena:", result->worker1_idle_during_day);
     printBigIntegerLine("2 darbuotojos poilsio laikas darbo diena:", result->worker2_idle_during_day);
-    printf("%-48s %d\n", "Laukianciu stojanciuju eile dienos pabaigoje:", result->remaining_queue_at_close);
+    printf("%-48s %d\n", "Laukiančių stojančiuju eile dienos pabaigoje:", result->remaining_queue_at_close);
     printf("%-48s %d\n", "Papildomas darbo laikas po priemimo valandu:", result->overtime_total);
-    printf("%-48s %d\n", "Is jo vien prasymu tvarkymui po paskutinio priemimo:", result->overtime_processing_only);
-    printf("%-48s %.2f%%\n", "1 darbuotojos uzimtumas:", result->worker1_occupancy);
-    printf("%-48s %.2f%%\n", "2 darbuotojos uzimtumas:", result->worker2_occupancy);
+    printf("%-48s %d\n", "Iš jo vien prašymu tvarkymui po paskutinio priemimo:", result->overtime_processing_only);
+    printf("%-48s %.2f%%\n", "1 darbuotojos užimtumas:", result->worker1_occupancy);
+    printf("%-48s %.2f%%\n", "2 darbuotojos užimtumas:", result->worker2_occupancy);
 }
